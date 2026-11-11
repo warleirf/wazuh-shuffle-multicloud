@@ -1,0 +1,80 @@
+version: '3.8'
+
+networks:
+  wazuh-shuffle-net:
+    driver: bridge
+
+services:
+  # ==========================================
+  # STACK WAZUH SIEM
+  # ==========================================
+  wazuh-indexer:
+    image: wazuh/wazuh-indexer:4.10.0
+    container_name: wazuh-indexer
+    environment:
+      - "CLUSTER_NAME=wazuh-cluster"
+      - "NODE_NAME=wazuh-indexer-node1"
+      - "bootstrap.memory_lock=true"
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - wazuh-indexer-storage:/var/lib/wazuh-index/
+    networks:
+      - wazuh-shuffle-net
+    restart: unless-stopped
+
+  wazuh-server:
+    image: wazuh/wazuh-manager:4.10.0
+    container_name: wazuh-server
+    ports:
+      - "1514:1514"
+      - "1515:1515"
+      - "55000:55000"
+    volumes:
+      - wazuh-data:/var/ossec/data
+    networks:
+      - wazuh-shuffle-net
+    depends_on:
+      - wazuh-indexer
+    restart: unless-stopped
+
+  wazuh-dashboard:
+    image: wazuh/wazuh-dashboard:4.10.0
+    container_name: wazuh-dashboard
+    ports:
+      - "443:443"
+    networks:
+      - wazuh-shuffle-net
+    depends_on:
+      - wazuh-server
+    restart: unless-stopped
+
+  # ==========================================
+  # STACK SHUFFLE SOAR
+  # ==========================================
+  shuffle-backend:
+    image: ghcr.io/shuffle/shuffle-backend:latest
+    container_name: shuffle-backend
+    environment:
+      - BACKEND_HOSTNAME=localhost
+    ports:
+      - "5001:5001"
+    networks:
+      - wazuh-shuffle-net
+    restart: unless-stopped
+
+  shuffle-frontend:
+    image: ghcr.io/shuffle/shuffle-frontend:latest
+    container_name: shuffle-frontend
+    ports:
+      - "8080:80"
+    networks:
+      - wazuh-shuffle-net
+    restart: unless-stopped
+
+volumes:
+  wazuh-indexer-storage:
+  wazuh-data:

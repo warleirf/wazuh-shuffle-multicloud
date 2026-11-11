@@ -1,0 +1,8 @@
+# Ambientes e Segredos
+.env
+*.log
+
+# Dados persistentes do Docker
+wazuh-data/
+wazuh-indexer-storage/
+shuffle-database/
