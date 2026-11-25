@@ -1,27 +1,27 @@
-version: '3.8'
-
 networks:
   wazuh-shuffle-net:
     driver: bridge
 
 services:
   # ==========================================
-  # STACK WAZUH SIEM
+  # STACK WAZUH SIEM (4.10.0)
   # ==========================================
   wazuh-indexer:
     image: wazuh/wazuh-indexer:4.10.0
     container_name: wazuh-indexer
     environment:
       - "CLUSTER_NAME=wazuh-cluster"
-      - "NODE_NAME=wazuh-indexer-node1"
+      - "NODE_NAME=wazuh-indexer"
+      - "DISCOVERY_SERVICE=wazuh-indexer"
       - "bootstrap.memory_lock=true"
-      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
     ulimits:
       memlock:
         soft: -1
         hard: -1
     volumes:
-      - wazuh-indexer-storage:/var/lib/wazuh-index/
+      - wazuh-indexer-storage:/var/lib/wazuh-indexer
+      - wazuh-certs:/etc/wazuh-indexer/certs:ro
     networks:
       - wazuh-shuffle-net
     restart: unless-stopped
@@ -29,12 +29,18 @@ services:
   wazuh-server:
     image: wazuh/wazuh-manager:4.10.0
     container_name: wazuh-server
+    environment:
+      - INDEXER_URL=https://wazuh-indexer:9200
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
+      - FILEBEAT_SSL_VERIFICATION_MODE=none
     ports:
       - "1514:1514"
       - "1515:1515"
       - "55000:55000"
     volumes:
       - wazuh-data:/var/ossec/data
+      - wazuh-certs:/etc/ssl/certs/wazuh:ro
     networks:
       - wazuh-shuffle-net
     depends_on:
@@ -44,37 +50,71 @@ services:
   wazuh-dashboard:
     image: wazuh/wazuh-dashboard:4.10.0
     container_name: wazuh-dashboard
+    environment:
+      - INDEXER_USERNAME=admin
+      - INDEXER_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
+      - WAZUH_API_URL=https://wazuh-server
+      - DASHBOARD_USERNAME=kibanaserver
+      - DASHBOARD_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
     ports:
-      - "443:443"
+      - "443:5601"
+    volumes:
+      - wazuh-certs:/etc/wazuh-dashboard/certs:ro
     networks:
       - wazuh-shuffle-net
     depends_on:
+      - wazuh-indexer
       - wazuh-server
     restart: unless-stopped
 
   # ==========================================
   # STACK SHUFFLE SOAR
   # ==========================================
+  shuffle-opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: shuffle-opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - shuffle-db-data:/usr/share/opensearch/data
+    networks:
+      - wazuh-shuffle-net
+    restart: unless-stopped
+
   shuffle-backend:
     image: ghcr.io/shuffle/shuffle-backend:latest
     container_name: shuffle-backend
     environment:
-      - BACKEND_HOSTNAME=localhost
+      - BACKEND_HOSTNAME=shuffle-backend
+      - DB_HOSTNAME=shuffle-opensearch
+      - DB_PORT=9200
+      - SHUFFLE_OPENSEARCH_URL=http://shuffle-opensearch:9200
     ports:
       - "5001:5001"
     networks:
       - wazuh-shuffle-net
+    depends_on:
+      - shuffle-opensearch
     restart: unless-stopped
 
   shuffle-frontend:
     image: ghcr.io/shuffle/shuffle-frontend:latest
     container_name: shuffle-frontend
+    environment:
+      - BACKEND_HOSTNAME=shuffle-backend
+      - BACKEND_PORT=5001
     ports:
       - "8080:80"
     networks:
       - wazuh-shuffle-net
+    depends_on:
+      - shuffle-backend
     restart: unless-stopped
 
 volumes:
+  wazuh-certs:
   wazuh-indexer-storage:
   wazuh-data:
+  shuffle-db-data:
