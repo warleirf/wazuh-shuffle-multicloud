@@ -4,6 +4,34 @@ networks:
 
 services:
   # ==========================================
+  # GERADOR OFICIAL DE CERTIFICADOS WAZUH 4.10.0
+  # ==========================================
+  wazuh-certs-gen:
+    image: wazuh/wazuh-indexer:4.10.0
+    container_name: wazuh-certs-gen
+    user: root
+    volumes:
+      - wazuh-certs:/certificates
+      - ./wazuh/certs/config.yml:/tmp/config.yml:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        if [ -f /certificates/wazuh-indexer.pem ] && [ -f /certificates/wazuh-dashboard.pem ]; then
+          echo "Certificados oficiais já existem. Pulando geração."
+          exit 0
+        fi
+        mkdir -p /tmp/certs-out
+        /usr/share/wazuh-indexer/bin/wazuh-certs-tool.sh -A /tmp/config.yml -o /tmp/certs-out
+        cp /tmp/certs-out/* /certificates/
+        chmod 755 /certificates
+        chmod 644 /certificates/*.pem
+        chown -R 1000:1000 /certificates
+        ls -la /certificates
+    networks:
+      - wazuh-shuffle-net
+
+  # ==========================================
   # STACK WAZUH SIEM (4.10.0)
   # ==========================================
   wazuh-indexer:
@@ -21,9 +49,17 @@ services:
         hard: -1
     volumes:
       - wazuh-indexer-storage:/var/lib/wazuh-indexer
-      - wazuh-certs:/etc/wazuh-indexer/certs:ro
+      - wazuh-certs:/etc/wazuh-indexer/certs
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost:9200 >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
     networks:
       - wazuh-shuffle-net
+    depends_on:
+      wazuh-certs-gen:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   wazuh-server:
@@ -33,7 +69,10 @@ services:
       - INDEXER_URL=https://wazuh-indexer:9200
       - INDEXER_USERNAME=admin
       - INDEXER_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
-      - FILEBEAT_SSL_VERIFICATION_MODE=none
+      - FILEBEAT_SSL_VERIFICATION_MODE=full
+      - SSL_CERTIFICATE_AUTHORITIES=/etc/ssl/root-ca.pem
+      - SSL_CERTIFICATE=/etc/ssl/filebeat.pem
+      - SSL_KEY=/etc/ssl/filebeat.key
     ports:
       - "1514:1514"
       - "1515:1515"
@@ -41,10 +80,21 @@ services:
     volumes:
       - wazuh-data:/var/ossec/data
       - wazuh-certs:/etc/ssl/certs/wazuh:ro
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        cp /etc/ssl/certs/wazuh/root-ca.pem /etc/ssl/root-ca.pem
+        cp /etc/ssl/certs/wazuh/wazuh-server.pem /etc/ssl/filebeat.pem
+        cp /etc/ssl/certs/wazuh/wazuh-server-key.pem /etc/ssl/filebeat.key
+        chmod 600 /etc/ssl/filebeat.key
+        exec /init
     networks:
       - wazuh-shuffle-net
     depends_on:
-      - wazuh-indexer
+      wazuh-certs-gen:
+        condition: service_completed_successfully
+      wazuh-indexer:
+        condition: service_healthy
     restart: unless-stopped
 
   wazuh-dashboard:
@@ -53,18 +103,27 @@ services:
     environment:
       - INDEXER_USERNAME=admin
       - INDEXER_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
+      - OPENSEARCH_HOSTS=https://wazuh-indexer:9200
       - WAZUH_API_URL=https://wazuh-server
       - DASHBOARD_USERNAME=kibanaserver
       - DASHBOARD_PASSWORD=${INDEXER_PASSWORD:-SecretPassword123!}
+      - SERVER_SSL_ENABLED=true
+      - SERVER_SSL_CERTIFICATE=/usr/share/wazuh-dashboard/certs/wazuh-dashboard.pem
+      - SERVER_SSL_KEY=/usr/share/wazuh-dashboard/certs/wazuh-dashboard-key.pem
+      - OPENSEARCH_SSL_CERTIFICATEAUTHORITIES=/usr/share/wazuh-dashboard/certs/root-ca.pem
     ports:
       - "443:5601"
     volumes:
-      - wazuh-certs:/etc/wazuh-dashboard/certs:ro
+      - wazuh-certs:/usr/share/wazuh-dashboard/certs:ro
     networks:
       - wazuh-shuffle-net
     depends_on:
-      - wazuh-indexer
-      - wazuh-server
+      wazuh-certs-gen:
+        condition: service_completed_successfully
+      wazuh-indexer:
+        condition: service_healthy
+      wazuh-server:
+        condition: service_started
     restart: unless-stopped
 
   # ==========================================
