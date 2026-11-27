@@ -1,10 +1,11 @@
 # Ambientes e segredos
 .env
-.env.bak.*
+.env.*
+!.env.example
 *.log
 
-# Certificados e chaves privadas
-wazuh/config/wazuh_indexer_ssl_certs/
+# Gerado pelo setup.sh: configurações com hashes e senhas, certificados e chaves
+wazuh/config/
 
 # Dados locais
 shuffle-apps/

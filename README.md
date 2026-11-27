@@ -78,7 +78,7 @@ Troque `SEU-USUARIO` pelo usuário do repositório. Repositórios privados exige
 
 ```bash
 cd /opt
-git clone https://github.com/SEU-USUARIO/wazuh-shuffle-multicloud.git
+git clone https://github.com/warleirf/wazuh-shuffle-multicloud.git
 cd /opt/wazuh-shuffle-multicloud
 ```
 Execute os próximos comandos dentro dessa pasta.
@@ -95,7 +95,8 @@ O script:
 4. gera os certificados.
 
 Continue somente se a última mensagem começar com `Pronto`.
-Não é preciso criar nem editar o `.env` manualmente.
+Não é preciso criar nem editar o `.env` manualmente. O arquivo `.env.example` apenas
+documenta as variáveis usadas; o `.env` real nunca deve ir para o Git.
 
 **Guarde uma cópia segura do `.env`.** Se a chave `SHUFFLE_ENCRYPTION_MODIFIER` for perdida ou
 alterada, as autenticações dos apps no Shuffle precisarão ser refeitas.
@@ -196,6 +197,27 @@ A senha deve ter de 8 a 64 caracteres, com maiúscula, minúscula, número e sí
    ```
 
 Depois da troca, use a nova senha no comando de saúde da etapa 7.
+
+## Integração Wazuh → Shuffle (opcional)
+> Testada apenas a edição do arquivo de configuração; falta validar o envio na stack em execução.
+
+1. No Shuffle, crie um workflow com o gatilho **Webhook**, salve e inicie o gatilho.
+2. Copie só o identificador `webhook_...` do final da URL.
+3. No servidor, execute:
+   ```bash
+   bash integrar-shuffle.sh webhook_SEU_ID
+   ```
+4. Gere um alerta das regras escolhidas e confira as execuções do workflow.
+
+As regras padrão são `5712,5551,60204` (força bruta). Para mudar, defina `SHUFFLE_RULE_IDS` no `.env`
+e execute `bash integrar-shuffle.sh` novamente. O script do Wazuh ignora algumas regras, entre elas a 5710.
+
+Diagnóstico:
+```bash
+docker compose exec wazuh.manager grep -A6 '<name>shuffle' /var/ossec/etc/ossec.conf
+docker compose exec wazuh.manager tail -n 50 /var/ossec/logs/integrations.log
+docker compose exec wazuh.manager grep -i integrat /var/ossec/logs/ossec.log
+```
 
 ## 10. Portas
 | Porta | Uso | Quem deve acessar |
