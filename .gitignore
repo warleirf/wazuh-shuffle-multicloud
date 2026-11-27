@@ -1,8 +1,11 @@
-# Ambientes e Segredos
+# Ambientes e segredos
 .env
+.env.bak.*
 *.log
 
-# Dados persistentes do Docker
-wazuh-data/
-wazuh-indexer-storage/
-shuffle-database/
+# Certificados e chaves privadas
+wazuh/config/wazuh_indexer_ssl_certs/
+
+# Dados locais
+shuffle-apps/
+shuffle-files/
